@@ -51,4 +51,10 @@ def test_windows_build(tmp_path, monkeypatch):
     ov.busy("辨識中…")
     ov.done()
     assert not theme.draw_icon().isNull()
+
+    # 測試結束前依序關閉並釋放視窗，避免程式結束時 Qt 物件釋放順序錯亂而當掉
+    for w in (hw, mw, dlg, ov):
+        w.close()
+        w.deleteLater()
     app.processEvents()
+    h._db.close()
