@@ -222,7 +222,8 @@ class Controller(QObject):
             x = audio.load_audio(path)
             raw, engine = transcribe.transcribe(x, s, progress)
             if not raw:
-                return {"raw": "", "final": "", "engine": engine, "warn": "沒有聽到聲音"}
+                return {"raw": "", "final": "", "engine": engine,
+                        "warn": "有收到聲音，但辨識不出文字，請靠近麥克風再說一次"}
             final, warn = raw, ""
             if s.polish_enabled:
                 progress("潤飾中…")

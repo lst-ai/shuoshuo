@@ -38,6 +38,15 @@ def test_split_chunks_cuts_in_silence():
 def test_silence_detect():
     assert audio.is_silent(np.zeros(16000, dtype=np.float32))
     assert not audio.is_silent(0.2 * np.ones(16000, dtype=np.float32))
+    # 小聲說話：大部分時間安靜，只有一小段有聲音，不能被判為安靜
+    quiet = np.zeros(16000 * 5, dtype=np.float32)
+    quiet[16000:20000] = 0.01 * np.sin(np.linspace(0, 600, 4000))
+    assert not audio.is_silent(quiet)
+
+
+def test_silence_raises(keys):
+    with pytest.raises(transcribe.SilenceError):
+        transcribe.transcribe(np.zeros(32000, dtype=np.float32), config.Settings())
 
 
 def test_history(tmp_path):

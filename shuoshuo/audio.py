@@ -134,10 +134,22 @@ def resample(x: np.ndarray, sr_from: int, sr_to: int) -> np.ndarray:
     return np.interp(np.linspace(0, len(x) - 1, n), np.arange(len(x)), x).astype(np.float32)
 
 
-def is_silent(x: np.ndarray, threshold: float = 0.006) -> bool:
+def peak_level(x: np.ndarray) -> float:
+    """最大聲那 0.1 秒的音量（RMS），用來判斷麥克風到底有沒有收到聲音。"""
+    win = SAMPLE_RATE // 10
+    n = len(x) // win
+    if n == 0:
+        return float(np.sqrt(np.mean(x**2))) if len(x) else 0.0
+    frames = x[: n * win].reshape(n, win)
+    return float(np.sqrt((frames**2).mean(axis=1)).max())
+
+
+def is_silent(x: np.ndarray, threshold: float = 0.002) -> bool:
+    """只有整段錄音連一點聲音都沒有（麥克風被擋、選錯裝置）才算安靜。
+    以最大聲的片段判斷，不用整段平均，避免小聲說話被誤判。"""
     if len(x) < SAMPLE_RATE * 0.3:
         return True
-    return float(np.sqrt(np.mean(x**2))) < threshold
+    return peak_level(x) < threshold
 
 
 def split_chunks(x: np.ndarray, max_sec: int = 600, search_sec: int = 20) -> list[np.ndarray]:

@@ -18,6 +18,11 @@ class TranscribeError(RuntimeError):
     pass
 
 
+class SilenceError(TranscribeError):
+    def __init__(self):
+        super().__init__("麥克風沒有收到聲音：請到設定→一般→「測試麥克風」檢查，或確認 Windows 允許應用程式使用麥克風")
+
+
 # ---------- Groq ----------
 def _groq_chunk(x: np.ndarray, key: str, model: str, prompt: str) -> str:
     files = {"file": ("audio.flac", audio.to_flac_bytes(x), "audio/flac")}
@@ -121,7 +126,7 @@ def transcribe_local(x: np.ndarray, s: config.Settings, progress: Progress | Non
 def transcribe(x: np.ndarray, s: config.Settings, progress: Progress | None = None) -> tuple[str, str]:
     """回傳 (繁體文字, 實際使用的引擎)。"""
     if audio.is_silent(x):
-        return "", s.engine
+        raise SilenceError()
     engine = s.engine
     try:
         if engine == "groq":

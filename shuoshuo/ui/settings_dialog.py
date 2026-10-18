@@ -102,6 +102,13 @@ class SettingsDialog(QDialog):
         idx = self.device.findData(self.s.input_device)
         self.device.setCurrentIndex(max(0, idx))
         f.addRow("麥克風", self.device)
+        mic_row = QHBoxLayout()
+        self.mic_btn = QPushButton("測試麥克風（錄 3 秒）")
+        self.mic_btn.clicked.connect(self._test_mic)
+        self.mic_result = _hint("")
+        mic_row.addWidget(self.mic_btn)
+        mic_row.addWidget(self.mic_result, 1)
+        f.addRow("", mic_row)
 
         self.sounds = QCheckBox("開始與結束時發出提示音")
         self.sounds.setChecked(self.s.play_sounds)
@@ -325,6 +332,37 @@ class SettingsDialog(QDialog):
             return "\n".join(out) or "請先填入金鑰"
 
         run_async(job, self.test_result.setText, self.test_result.setText)
+
+    def _test_mic(self):
+        device = self.device.currentData()
+        self.mic_btn.setEnabled(False)
+        self.mic_result.setText("錄音中，請說幾句話…")
+
+        def job(_p):
+            import numpy as np
+            import sounddevice as sd
+
+            data = sd.rec(int(3 * audio.SAMPLE_RATE), samplerate=audio.SAMPLE_RATE,
+                          channels=1, dtype="float32", device=device)
+            sd.wait()
+            x = data[:, 0]
+            peak = audio.peak_level(x)
+            name = sd.query_devices(device if device is not None else sd.default.device[0])["name"]
+            if not np.any(x):
+                verdict = "完全沒有訊號：Windows 可能封鎖了麥克風（設定→隱私權與安全性→麥克風）"
+            elif peak < 0.002:
+                verdict = "幾乎沒聲音：可能選錯麥克風，或麥克風被靜音"
+            elif peak < 0.02:
+                verdict = "聲音偏小，可以用，但建議靠近一點或調高音量"
+            else:
+                verdict = "正常 ✓"
+            return f"{name}：{verdict}（音量 {min(100, int(peak * 300))}）"
+
+        def done(msg):
+            self.mic_btn.setEnabled(True)
+            self.mic_result.setText(msg)
+
+        run_async(job, done, lambda e: done(f"無法錄音：{e}"))
 
     def _download_model(self):
         name = self.local_model.currentData()
