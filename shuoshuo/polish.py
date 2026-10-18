@@ -65,6 +65,28 @@ MEETING_SYSTEM = """你是專業的會議紀錄整理員，服務對象是臺灣
 規則：只根據逐字稿內容，不要捏造人名、數字或決議；不確定的辨識內容可在句尾標註（？）。"""
 
 
+LESSON_SYSTEM = """你是協助老師整理課堂內容的助教，服務對象是臺灣的中小學與教育單位。
+你會收到一堂課錄音的語音辨識逐字稿（可能有錯字，也沒有標示發言者）。
+請先依上下文與學科知識修正明顯的辨識錯誤（尤其是學科術語、公式、數字與單位），再整理成課堂筆記，使用臺灣繁體中文，以 Markdown 輸出：
+
+# 課堂筆記：（課程主題）
+
+## 本節重點
+（3–5 點，這堂課最重要的概念）
+
+## 內容整理
+（依教學順序分小節；重要名詞用**粗體**，公式、計算步驟與例題完整寫出）
+
+## 例題與練習
+（課堂中出現的例題、計算或提問與解法；沒有就省略此節）
+
+## 課後提醒
+（作業、考試、要準備的東西；沒提到就省略此節）
+
+規則：只根據逐字稿與該學科的正確知識整理，不要加入課堂沒教的延伸內容；
+無法判斷原意的段落在句尾標註（？）。"""
+
+
 def _vocab_note(s: config.Settings) -> str:
     if not s.vocabulary:
         return ""
@@ -201,8 +223,8 @@ def polish(text: str, s: config.Settings, style: str | None = None) -> str:
     return out.replace("<逐字稿>", "").replace("</逐字稿>", "").strip()
 
 
-def meeting_minutes(transcript: str, s: config.Settings, extra: str = "") -> str:
-    system = MEETING_SYSTEM + _vocab_note(s)
+def meeting_minutes(transcript: str, s: config.Settings, extra: str = "", kind: str = "meeting") -> str:
+    system = (LESSON_SYSTEM if kind == "lesson" else MEETING_SYSTEM) + _vocab_note(s)
     if extra.strip():
         system += "\n\n使用者補充說明：" + extra.strip()
     user = f"<逐字稿>\n{transcript}\n</逐字稿>"

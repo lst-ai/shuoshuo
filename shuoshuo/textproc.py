@@ -26,20 +26,25 @@ def apply_replacements(text: str, rules: dict[str, str]) -> str:
     return pattern.sub(lambda m: rules[m.group(0)], text)
 
 
-def whisper_prompt(vocabulary: list[str]) -> str:
-    """給 Whisper 的提示：讓它偏向繁體與這些專有名詞。Whisper 提示上限約 224 tokens。"""
-    base = "以下是繁體中文的口述內容，使用臺灣用語與全形標點。"
-    if not vocabulary:
-        return base
+def whisper_prompt(vocabulary: list[str], topic: str = "") -> str:
+    """給 Whisper 的提示。Whisper 會把提示當成「前一段聽到的話」，
+    所以只能放自然的繁體句子和名詞，絕不能放指令，否則收音差時會被原樣吐出來。
+    上限約 224 tokens。"""
+    parts = ["好，我們開始。"]
+    if topic.strip():
+        parts.append(f"今天的主題是{topic.strip()}。")
     terms = "、".join(v.strip() for v in vocabulary if v.strip())
-    return (base + "可能出現的詞：" + terms + "。")[:200]
+    if terms:
+        parts.append(terms + "。")
+    return "".join(parts)[:200]
 
 
 def clean_transcript(text: str) -> str:
     """去掉 Whisper 常見的幻聽字句與多餘空白。"""
     junk = [
         r"請不吝點贊.*", r"字幕由.*提供", r"謝謝觀看[。！]?$", r"訂閱.*頻道.*",
-        r"以下是繁體中文的口述內容.*?。",
+        r"以下是繁體中文的口述內容.*?。", r"[^。]*使用[台臺]灣[^。]*標點[。]?",
+        r"^好，我們開始。", r"今天的主題是[^。]*。$",
     ]
     for pat in junk:
         text = re.sub(pat, "", text)

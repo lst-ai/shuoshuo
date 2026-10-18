@@ -183,7 +183,7 @@ def test_groq_and_fallback(monkeypatch, keys):
 
     # Groq 失敗 → 改用本機
     monkeypatch.setattr(httpx, "post", lambda *a, **k: httpx.Response(500, text="boom"))
-    monkeypatch.setattr(transcribe, "transcribe_local", lambda x, s, p=None: "本机结果")
+    monkeypatch.setattr(transcribe, "transcribe_local", lambda x, s, p=None, topic="": "本机结果")
     text, eng = transcribe.transcribe(x, config.Settings())
     assert text == "本機結果" and eng == "local"
 
@@ -246,3 +246,30 @@ def test_missing_key_message(monkeypatch, keys):
     x = (0.2 * np.sin(np.linspace(0, 5000, 32000))).astype(np.float32)
     with pytest.raises(transcribe.TranscribeError, match="Gemini"):
         transcribe.transcribe(x, config.Settings(engine="gemini"))
+
+
+def test_whisper_prompt_has_no_instructions():
+    p = textproc.whisper_prompt(["課發會"], "國中化學課")
+    assert "使用" not in p and "標點" not in p and "以下是" not in p
+    assert "國中化學課" in p and "課發會" in p
+    # 提示詞外洩的殘句會被清掉
+    leaked = "估算一下大約10倍。請在旁邊寫下立委認出使用台灣的語與全形標點。這裡我們可以看到。"
+    out = textproc.clean_transcript(leaked)
+    assert "標點" not in out and "估算" in out and "這裡" in out
+
+
+def test_topic_reaches_gemini_and_lesson_prompt(monkeypatch, keys):
+    monkeypatch.setenv("GEMINI_API_KEY", "gm-test")
+    bodies = []
+
+    def fake_post(url, headers=None, json=None, timeout=None, **k):
+        bodies.append(json)
+        return httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": "好"}]}}]})
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    x = (0.2 * np.sin(np.linspace(0, 5000, 32000))).astype(np.float32)
+    transcribe.transcribe(x, config.Settings(engine="gemini"), topic="國中化學課")
+    assert "國中化學課" in bodies[0]["contents"][0]["parts"][1]["text"]
+    polish.meeting_minutes("逐字稿", config.Settings(meeting_provider="gemini"), "錄音主題：化學", kind="lesson")
+    sysmsg = bodies[1]["systemInstruction"]["parts"][0]["text"]
+    assert "課堂筆記" in sysmsg and "化學" in sysmsg

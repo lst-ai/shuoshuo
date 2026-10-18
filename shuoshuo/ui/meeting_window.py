@@ -6,7 +6,7 @@ from pathlib import Path
 from PySide6.QtCore import QTimer
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
-    QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton,
+    QComboBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton,
     QSplitter, QTabWidget, QTextBrowser, QVBoxLayout, QWidget,
 )
 
@@ -53,6 +53,10 @@ class MeetingWindow(QWidget):
         src.addWidget(recent)
         src.addWidget(self.rec_label, 1)
         root.addLayout(src)
+        self.topic = QLineEdit()
+        self.topic.setPlaceholderText("錄音主題（建議填）：例如 國中化學課—化學計量、115學年度第1次課發會")
+        self.topic.setToolTip("辨識和整理都會參考這個主題，專業術語會準很多")
+        root.addWidget(self.topic)
 
         split = QSplitter()
         left = QWidget()
@@ -65,10 +69,18 @@ class MeetingWindow(QWidget):
         self.extra = QLineEdit()
         self.extra.setPlaceholderText("補充說明（選填）：例如 115學年度第1次課發會，主席王校長")
         lv.addWidget(self.extra)
-        title2 = QLabel("② 產生會議紀錄")
+        title2 = QLabel("② 整理")
         title2.setObjectName("h1")
         lv.addWidget(title2)
-        self.gen_btn = QPushButton("產生會議紀錄")
+        kind_row = QHBoxLayout()
+        kind_row.addWidget(QLabel("整理成"))
+        self.out_kind = QComboBox()
+        self.out_kind.addItem("會議紀錄", "meeting")
+        self.out_kind.addItem("課堂筆記", "lesson")
+        kind_row.addWidget(self.out_kind)
+        kind_row.addStretch()
+        lv.addLayout(kind_row)
+        self.gen_btn = QPushButton("產生整理結果")
         self.gen_btn.setObjectName("primary")
         self.gen_btn.clicked.connect(self._generate)
         lv.addWidget(self.gen_btn)
@@ -176,6 +188,7 @@ class MeetingWindow(QWidget):
     def _transcribe_file(self, path: str):
         self._set_busy(True)
         self.audio_path = path
+        topic = self.topic.text()  # 先在主執行緒讀好，背景工作不碰介面元件
         self.status.setText("讀取錄音檔…")
 
         def job(progress):
@@ -183,7 +196,7 @@ class MeetingWindow(QWidget):
             self.duration = len(x) / audio.SAMPLE_RATE
             mins = self.duration / 60
             progress(f"辨識中（共 {mins:.0f} 分鐘）…")
-            return transcribe.transcribe(x, self.s, progress)
+            return transcribe.transcribe(x, self.s, progress, topic=topic)
 
         def done(result):
             text, engine = result
@@ -194,7 +207,7 @@ class MeetingWindow(QWidget):
                 return
             # 長錄音一句一行比較好讀
             self.transcript.setPlainText(text.replace("。", "。\n").replace("\n\n", "\n"))
-            self.status.setText(f"辨識完成（{len(text)} 字）。可先修正逐字稿，再按「產生會議紀錄」。")
+            self.status.setText(f"辨識完成（{len(text)} 字）。可先修正逐字稿，再按「產生整理結果」。")
 
         def fail(err):
             self._set_busy(False)
@@ -209,14 +222,14 @@ class MeetingWindow(QWidget):
             self.status.setText("請先錄音、匯入或貼上逐字稿。")
             return
         self._set_busy(True)
-        self.status.setText("AI 整理會議紀錄中，長會議約需 1 分鐘…")
+        self.status.setText("AI 整理中，長錄音約需 1 分鐘…")
 
         def done(md):
             self._set_busy(False)
             self.minutes_md = md
             self.md_edit.setPlainText(md)
             self.out_tabs.setCurrentIndex(0)
-            self.h.add(kind="meeting", style="會議紀錄", engine=self.engine, raw=text,
+            self.h.add(kind="meeting", style=self.out_kind.currentText(), engine=self.engine, raw=text,
                        final=md, duration=self.duration, audio_path=self.audio_path)
             self.status.setText("完成，已存入歷史紀錄。")
 
@@ -224,7 +237,10 @@ class MeetingWindow(QWidget):
             self._set_busy(False)
             self.status.setText(f"整理失敗：{err}")
 
-        run_async(lambda _p: polish.meeting_minutes(text, self.s, self.extra.text()), done, fail)
+        extra = "；".join(t for t in (f"錄音主題：{self.topic.text().strip()}" if self.topic.text().strip() else "",
+                                       self.extra.text().strip()) if t)
+        kind = self.out_kind.currentData()
+        run_async(lambda _p: polish.meeting_minutes(text, self.s, extra, kind=kind), done, fail)
 
     def _md_changed(self):
         self.preview.setMarkdown(self.md_edit.toPlainText())

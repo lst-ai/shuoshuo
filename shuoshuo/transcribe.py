@@ -59,11 +59,12 @@ def _groq_chunk(x: np.ndarray, key: str, model: str, prompt: str) -> str:
     raise TranscribeError("Groq 多次重試失敗")
 
 
-def transcribe_groq(x: np.ndarray, s: config.Settings, progress: Progress | None = None) -> str:
+def transcribe_groq(x: np.ndarray, s: config.Settings, progress: Progress | None = None,
+                    topic: str = "") -> str:
     key = config.get_key("groq")
     if not key:
         raise TranscribeError("尚未設定 Groq API key")
-    prompt = textproc.whisper_prompt(s.vocabulary)
+    prompt = textproc.whisper_prompt(s.vocabulary, topic)
     chunks = audio.split_chunks(x)
     parts = []
     for i, c in enumerate(chunks, 1):
@@ -101,7 +102,8 @@ def local_model_ready(name: str) -> bool:
     return any(d.glob(f"models--Systran--faster-whisper-{name}*"))
 
 
-def transcribe_local(x: np.ndarray, s: config.Settings, progress: Progress | None = None) -> str:
+def transcribe_local(x: np.ndarray, s: config.Settings, progress: Progress | None = None,
+                     topic: str = "") -> str:
     if progress and not local_model_ready(s.local_model):
         progress("第一次使用，下載本機模型中…")
     model = _get_local(s.local_model)
@@ -109,7 +111,7 @@ def transcribe_local(x: np.ndarray, s: config.Settings, progress: Progress | Non
     segments, _info = model.transcribe(
         x,
         language="zh",
-        initial_prompt=textproc.whisper_prompt(s.vocabulary),
+        initial_prompt=textproc.whisper_prompt(s.vocabulary, topic),
         vad_filter=True,
         beam_size=5,
         condition_on_previous_text=False,  # 減少長錄音的重複幻聽
@@ -135,10 +137,12 @@ GEMINI_PROMPT = """請把這段錄音逐字聽寫成文字。
 5. 完全沒有人聲時，只輸出空白。"""
 
 
-def _gemini_chunk(x: np.ndarray, key: str, model: str, vocab: list[str]) -> str:
+def _gemini_chunk(x: np.ndarray, key: str, model: str, vocab: list[str], topic: str = "") -> str:
     import base64
 
     prompt = GEMINI_PROMPT
+    if topic.strip():
+        prompt += f"\n這段錄音的主題：{topic.strip()}（請用這個領域的正確術語）"
     if vocab:
         prompt += "\n可能出現的專有名詞（請用這些寫法）：" + "、".join(vocab)
     gen = {"temperature": 0}
@@ -177,7 +181,8 @@ def _gemini_chunk(x: np.ndarray, key: str, model: str, vocab: list[str]) -> str:
     raise TranscribeError("Gemini 多次重試失敗")
 
 
-def transcribe_gemini(x: np.ndarray, s: config.Settings, progress: Progress | None = None) -> str:
+def transcribe_gemini(x: np.ndarray, s: config.Settings, progress: Progress | None = None,
+                      topic: str = "") -> str:
     key = config.get_key("gemini")
     if not key:
         raise TranscribeError("尚未設定 Gemini API key")
@@ -187,7 +192,7 @@ def transcribe_gemini(x: np.ndarray, s: config.Settings, progress: Progress | No
     for i, c in enumerate(chunks, 1):
         if progress and len(chunks) > 1:
             progress(f"Gemini 辨識中 {i}/{len(chunks)}")
-        parts.append(_gemini_chunk(c, key, s.gemini_stt_model, s.vocabulary).strip())
+        parts.append(_gemini_chunk(c, key, s.gemini_stt_model, s.vocabulary, topic).strip())
     return "\n".join(p for p in parts if p)
 
 
@@ -198,14 +203,15 @@ ENGINES = {
 }
 
 
-def transcribe(x: np.ndarray, s: config.Settings, progress: Progress | None = None) -> tuple[str, str]:
+def transcribe(x: np.ndarray, s: config.Settings, progress: Progress | None = None,
+               topic: str = "") -> tuple[str, str]:
     """回傳 (繁體文字, 實際使用的引擎)。
     依序嘗試：選定的引擎 → 其他已填金鑰的雲端引擎 → 本機（若開啟備援）。"""
     if audio.is_silent(x):
         raise SilenceError()
     x = audio.normalize(x)
     if s.engine == "local":
-        return textproc.postprocess(transcribe_local(x, s, progress), s.replacements), "local"
+        return textproc.postprocess(transcribe_local(x, s, progress, topic), s.replacements), "local"
 
     order = [s.engine] + [e for e in ENGINES if e != s.engine]
     errors = []
@@ -218,12 +224,12 @@ def transcribe(x: np.ndarray, s: config.Settings, progress: Progress | None = No
         if i > 0 and progress:
             progress(f"改用 {name} 辨識…")
         try:
-            return textproc.postprocess(fn(x, s, progress), s.replacements), eng
+            return textproc.postprocess(fn(x, s, progress, topic), s.replacements), eng
         except TranscribeError as e:
             errors.append(str(e))
     # 雲端都失敗；只有在至少有一把雲端金鑰（代表是網路或額度問題）時才改用本機
     if s.fallback_to_local and any(config.get_key(k) for _n, k, _f in ENGINES.values()):
         if progress:
             progress("雲端失敗，改用本機辨識…")
-        return textproc.postprocess(transcribe_local(x, s, progress), s.replacements), "local"
+        return textproc.postprocess(transcribe_local(x, s, progress, topic), s.replacements), "local"
     raise TranscribeError("；".join(errors))
