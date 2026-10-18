@@ -22,7 +22,7 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    [],
+    [("X utf8", None, "OPTION")],  # 以 UTF-8 模式執行，避免中文 Windows 編碼問題
     exclude_binaries=True,
     name="ShuoShuo",
     icon="assets/icon.ico",
