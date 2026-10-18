@@ -124,7 +124,7 @@ class HistoryWindow(QWidget):
         if not e:
             return
         self.text.setPlainText(e.raw if self.show_raw.isChecked() else (e.final or e.raw))
-        eng = {"groq": "Groq 雲端", "local": "本機"}.get(e.engine, e.engine)
+        eng = {"groq": "Groq 雲端", "gemini": "Gemini 雲端", "local": "本機"}.get(e.engine, e.engine)
         self.meta.setText(f"{e.created}　{eng}　{e.duration:.0f} 秒")
 
     def _copy(self):

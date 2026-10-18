@@ -22,6 +22,9 @@ from .ui.settings_dialog import SettingsDialog
 from .ui.worker import run_async
 
 
+ENGINE_NAMES = {"gemini": "Gemini", "groq": "Groq", "local": "本機"}
+
+
 def beep(kind: str) -> None:
     if sys.platform != "win32":
         return
@@ -100,7 +103,8 @@ class Controller(QObject):
 
         eng_menu = m.addMenu("辨識引擎")
         eg = QActionGroup(eng_menu)
-        for key, label in [("groq", "Groq 雲端"), ("local", "本機 Whisper")]:
+        for key, label in [("gemini", "Gemini 雲端（臺灣口音較準）"), ("groq", "Groq 雲端（最快）"),
+                           ("local", "本機 Whisper")]:
             a = QAction(label, eng_menu, checkable=True)
             a.setChecked(self.s.engine == key)
             a.triggered.connect(lambda _=False, k=key: self._set_engine(k))
@@ -246,7 +250,10 @@ class Controller(QObject):
             if r["warn"]:
                 self.overlay.error(r["warn"])
             else:
-                self.overlay.done("已貼上" + ("（本機辨識）" if r["engine"] == "local" and s.engine == "groq" else ""))
+                note = ""
+                if r["engine"] != s.engine:
+                    note = f"（改用{ENGINE_NAMES.get(r['engine'], r['engine'])}辨識）"
+                self.overlay.done("已貼上" + note)
 
         def fail(err):
             self.processing = False

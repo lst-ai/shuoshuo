@@ -144,6 +144,15 @@ def peak_level(x: np.ndarray) -> float:
     return float(np.sqrt((frames**2).mean(axis=1)).max())
 
 
+def normalize(x: np.ndarray, target: float = 0.1, max_gain: float = 10.0) -> np.ndarray:
+    """小聲的錄音放大（最大聲片段調到 target），太大聲不動；筆電麥克風辨識會明顯變好。"""
+    peak = peak_level(x)
+    if peak <= 0 or peak >= target:
+        return x
+    gain = min(max_gain, target / peak)
+    return np.clip(x * gain, -1.0, 1.0).astype(np.float32)
+
+
 def is_silent(x: np.ndarray, threshold: float = 0.002) -> bool:
     """只有整段錄音連一點聲音都沒有（麥克風被擋、選錯裝置）才算安靜。
     以最大聲的片段判斷，不用整段平均，避免小聲說話被誤判。"""

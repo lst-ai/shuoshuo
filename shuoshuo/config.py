@@ -45,11 +45,12 @@ def recordings_dir() -> Path:
 class Settings:
     # 快捷鍵（pynput 格式）：按一下開始、再按一下結束
     hotkey: str = "<ctrl>+<alt>+<space>"
-    # 辨識引擎："groq" 或 "local"
-    engine: str = "groq"
+    # 辨識引擎："gemini"（臺灣口音較準）、"groq"（最快）或 "local"
+    engine: str = "gemini"
     # 雲端失敗時是否自動改用本機
     fallback_to_local: bool = True
     groq_model: str = "whisper-large-v3"
+    gemini_stt_model: str = "gemini-2.5-flash"
     # 本機 Whisper 模型：tiny / base / small / medium
     local_model: str = "small"
     # 潤飾

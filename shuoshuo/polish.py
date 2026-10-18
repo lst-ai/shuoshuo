@@ -33,7 +33,7 @@ BASE_SYSTEM = """你是語音輸入法的文字整理器。使用者用說的方
 3. 刪除贅字與口頭禪（嗯、那個、就是、然後、對、欸）、重複與結巴。
 4. 說話者自我更正時（例如「禮拜二，不對，是禮拜三」），只保留更正後的版本。
 5. 補上正確的全形標點，必要時分段。
-6. 修正明顯的同音錯字，但不要改變原意、不要新增原文沒有的資訊。
+6. 語音辨識常把同音或近音字聽錯（例如「教務處」被聽成「叫物處」、「課發會」被聽成「客發會」），請依上下文判斷並改成最合理的詞；說話者多為臺灣教育工作者，常出現校務、課程、計畫、會議等用語。人名、機關與計畫名稱以詞庫寫法為準。不要改變原意、不要新增原文沒有的資訊。
 7. 一律使用臺灣繁體中文與臺灣慣用詞。
 8. 數字、日期、時間用阿拉伯數字（例如 10月18日、下午3點）。"""
 
@@ -139,6 +139,9 @@ def _call_gemini(key, system, user, model, max_tokens, timeout) -> str:
         "contents": [{"role": "user", "parts": [{"text": user}]}],
         "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.3},
     }
+    if model.startswith("gemini-2.5-flash") and max_tokens <= 4000:
+        # 口述潤飾求快，關掉思考；會議整理（較大的輸出上限）保留思考以求品質
+        body["generationConfig"]["thinkingConfig"] = {"thinkingBudget": 0}
     data = _post("Gemini", GEMINI_URL.format(model=model), {"x-goog-api-key": key}, body, timeout)
     try:
         parts = data["candidates"][0]["content"]["parts"]

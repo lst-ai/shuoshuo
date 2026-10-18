@@ -197,3 +197,52 @@ def test_settings_roundtrip(keys):
     assert s2.vocabulary == ["AI人才方舟計畫"] and s2.custom_styles["校務會議"] == "條理分明"
     raw = json.loads(config.Settings.path().read_text(encoding="utf-8"))
     assert "sk-test" not in json.dumps(raw)  # 金鑰不會寫進設定檔
+
+
+def test_normalize_boosts_quiet_audio():
+    quiet = (0.01 * np.sin(np.linspace(0, 3000, 16000))).astype(np.float32)
+    out = audio.normalize(quiet)
+    assert audio.peak_level(out) > audio.peak_level(quiet) * 5
+    loud = (0.5 * np.sin(np.linspace(0, 3000, 16000))).astype(np.float32)
+    assert audio.normalize(loud) is loud  # 夠大聲就不動
+
+
+def test_gemini_transcribe_and_fallback(monkeypatch, keys):
+    monkeypatch.setenv("GEMINI_API_KEY", "gm-test")
+    seen = []
+
+    def fake_post(url, headers=None, json=None, timeout=None, files=None, data=None):
+        seen.append((url, json))
+        if "googleapis" in url:
+            return httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": "教務处开会"}]}}]})
+        return httpx.Response(200, json={"text": "groq"})
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    x = (0.2 * np.sin(np.linspace(0, 5000, 32000))).astype(np.float32)
+    s = config.Settings(engine="gemini", vocabulary=["課發會"])
+    text, eng = transcribe.transcribe(x, s)
+    assert (text, eng) == ("教務處開會", "gemini")
+    url, body = seen[0]
+    assert "gemini-2.5-flash:generateContent" in url
+    parts = body["contents"][0]["parts"]
+    assert parts[0]["inline_data"]["mime_type"] == "audio/flac"
+    assert "課發會" in parts[1]["text"]
+    assert body["generationConfig"]["thinkingConfig"]["thinkingBudget"] == 0
+
+    # Gemini 額度用完 → 自動改用 Groq
+    def quota(url, **k):
+        if "googleapis" in url:
+            return httpx.Response(429, json={})
+        return httpx.Response(200, json={"text": "改用groq"})
+
+    monkeypatch.setattr(httpx, "post", quota)
+    text, eng = transcribe.transcribe(x, s)
+    assert eng == "groq" and "改用" in text
+
+
+def test_missing_key_message(monkeypatch, keys):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    x = (0.2 * np.sin(np.linspace(0, 5000, 32000))).astype(np.float32)
+    with pytest.raises(transcribe.TranscribeError, match="Gemini"):
+        transcribe.transcribe(x, config.Settings(engine="gemini"))

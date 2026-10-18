@@ -145,12 +145,15 @@ class SettingsDialog(QDialog):
     def _tab_engine(self):
         w = QWidget()
         v = QVBoxLayout(w)
-        self.eng_groq = QRadioButton("Groq 雲端（建議：快、準，聲音會上傳到 Groq）")
+        self.eng_gemini = QRadioButton("Gemini 雲端（建議：臺灣口音、中英夾雜較準，稍慢一點）")
+        self.eng_groq = QRadioButton("Groq 雲端（最快，Whisper 模型）")
         self.eng_local = QRadioButton("本機 Whisper（離線、聲音不外流，沒有顯卡會比較慢）")
-        (self.eng_groq if self.s.engine == "groq" else self.eng_local).setChecked(True)
+        {"gemini": self.eng_gemini, "groq": self.eng_groq}.get(self.s.engine, self.eng_local).setChecked(True)
+        v.addWidget(self.eng_gemini)
         v.addWidget(self.eng_groq)
         v.addWidget(self.eng_local)
-        self.fallback = QCheckBox("雲端失敗（沒網路、額度用完）時自動改用本機")
+        v.addWidget(_hint("雲端引擎失敗時，會先改用另一個已填金鑰的雲端引擎。"))
+        self.fallback = QCheckBox("雲端都失敗（沒網路、額度用完）時改用本機")
         self.fallback.setChecked(self.s.fallback_to_local)
         v.addWidget(self.fallback)
         f = QFormLayout()
@@ -158,7 +161,10 @@ class SettingsDialog(QDialog):
         self.groq_model.setEditable(True)
         self.groq_model.addItems(["whisper-large-v3", "whisper-large-v3-turbo"])
         self.groq_model.setEditText(self.s.groq_model)
-        f.addRow("Groq 模型", self.groq_model)
+        f.addRow("Groq 辨識模型", self.groq_model)
+        self.gemini_stt_model = self._model_combo(
+            ["gemini-2.5-flash", "gemini-3-flash-preview", "gemini-2.5-pro"], self.s.gemini_stt_model)
+        f.addRow("Gemini 辨識模型", self.gemini_stt_model)
         self.local_model = QComboBox()
         for name, desc in [
             ("tiny", "tiny（最快，準確度低）"),
@@ -390,7 +396,8 @@ class SettingsDialog(QDialog):
         s.input_device = self.device.currentData()
         s.play_sounds = self.sounds.isChecked()
         s.restore_clipboard = self.restore.isChecked()
-        s.engine = "groq" if self.eng_groq.isChecked() else "local"
+        s.engine = "gemini" if self.eng_gemini.isChecked() else ("groq" if self.eng_groq.isChecked() else "local")
+        s.gemini_stt_model = self.gemini_stt_model.currentText().strip() or s.gemini_stt_model
         s.fallback_to_local = self.fallback.isChecked()
         s.groq_model = self.groq_model.currentText().strip() or s.groq_model
         s.local_model = self.local_model.currentData()
