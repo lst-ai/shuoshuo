@@ -209,7 +209,7 @@ class MeetingWindow(QWidget):
             self.status.setText("請先錄音、匯入或貼上逐字稿。")
             return
         self._set_busy(True)
-        self.status.setText("Claude 整理會議紀錄中，長會議約需 1 分鐘…")
+        self.status.setText("AI 整理會議紀錄中，長會議約需 1 分鐘…")
 
         def done(md):
             self._set_busy(False)

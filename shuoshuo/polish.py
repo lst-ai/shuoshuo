@@ -1,4 +1,4 @@
-"""用 Claude 潤飾口述文字、整理會議紀錄。"""
+"""用 AI（Groq / Gemini / Claude）潤飾口述文字、整理會議紀錄。"""
 from __future__ import annotations
 
 import httpx
@@ -75,39 +75,117 @@ def all_styles(s: config.Settings) -> dict[str, str]:
     return {**BUILTIN_STYLES, **s.custom_styles}
 
 
-def _call(system: str, user: str, model: str, max_tokens: int, timeout: float) -> str:
-    key = config.get_key("anthropic")
-    if not key:
-        raise PolishError("尚未設定 Claude API key")
+PROVIDERS = {
+    "groq": ("Groq", "groq"),        # 顯示名稱, 金鑰名稱
+    "gemini": ("Gemini", "gemini"),
+    "claude": ("Claude", "anthropic"),
+}
+
+GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+
+
+def _post(name: str, url: str, headers: dict, body: dict, timeout: float) -> dict:
     try:
-        r = httpx.post(
-            API_URL,
-            headers={
-                "x-api-key": key,
-                "anthropic-version": API_VERSION,
-                "content-type": "application/json",
-            },
-            json={
-                "model": model,
-                "max_tokens": max_tokens,
-                "system": system,
-                "messages": [{"role": "user", "content": user}],
-            },
-            timeout=timeout,
-        )
+        r = httpx.post(url, headers=headers, json=body, timeout=timeout)
     except httpx.HTTPError as e:
-        raise PolishError(f"連不上 Claude：{e}") from e
-    if r.status_code == 401:
-        raise PolishError("Claude API key 無效，請到設定重新輸入")
+        raise PolishError(f"連不上 {name}：{e}") from e
+    if r.status_code in (401, 403):
+        raise PolishError(f"{name} API key 無效，請到設定重新輸入")
+    if r.status_code == 429:
+        raise PolishError(f"{name} 免費額度暫時用完，請稍後再試")
     if r.status_code != 200:
         try:
-            msg = r.json().get("error", {}).get("message", r.text)
+            err = r.json().get("error", {})
+            msg = err.get("message", r.text) if isinstance(err, dict) else str(err)
         except Exception:
             msg = r.text
-        raise PolishError(f"Claude 回應錯誤 {r.status_code}：{msg[:200]}")
-    data = r.json()
-    text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
-    return text.strip()
+        raise PolishError(f"{name} 回應錯誤 {r.status_code}：{msg[:200]}")
+    return r.json()
+
+
+def _call_claude(key, system, user, model, max_tokens, timeout) -> str:
+    data = _post(
+        "Claude", API_URL,
+        {"x-api-key": key, "anthropic-version": API_VERSION, "content-type": "application/json"},
+        {"model": model, "max_tokens": max_tokens, "system": system,
+         "messages": [{"role": "user", "content": user}]},
+        timeout,
+    )
+    return "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
+
+
+def _call_groq(key, system, user, model, max_tokens, timeout) -> str:
+    body = {
+        "model": model,
+        "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        "max_completion_tokens": max_tokens,
+        "temperature": 0.3,
+    }
+    if model.startswith("openai/gpt-oss"):
+        # 推理模型：少想一點比較快，且不要把思考過程放進回應
+        body["reasoning_effort"] = "low"
+        body["include_reasoning"] = False
+    data = _post("Groq", GROQ_CHAT_URL, {"Authorization": f"Bearer {key}"}, body, timeout)
+    try:
+        return data["choices"][0]["message"].get("content") or ""
+    except (KeyError, IndexError):
+        raise PolishError("Groq 回應格式不正確")
+
+
+def _call_gemini(key, system, user, model, max_tokens, timeout) -> str:
+    body = {
+        "systemInstruction": {"parts": [{"text": system}]},
+        "contents": [{"role": "user", "parts": [{"text": user}]}],
+        "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.3},
+    }
+    data = _post("Gemini", GEMINI_URL.format(model=model), {"x-goog-api-key": key}, body, timeout)
+    try:
+        parts = data["candidates"][0]["content"]["parts"]
+    except (KeyError, IndexError):
+        reason = (data.get("promptFeedback") or {}).get("blockReason", "")
+        raise PolishError(f"Gemini 沒有回傳內容{('（' + reason + '）') if reason else ''}")
+    # 跳過思考摘要，只取正式回答
+    return "".join(p.get("text", "") for p in parts if not p.get("thought"))
+
+
+_CALLERS = {"claude": _call_claude, "groq": _call_groq, "gemini": _call_gemini}
+
+
+def _model_for(provider: str, s: config.Settings, task: str) -> str:
+    if provider == "groq":
+        return s.groq_chat_model
+    if provider == "gemini":
+        return s.gemini_model
+    return s.claude_meeting_model if task == "meeting" else s.claude_model
+
+
+def available_providers() -> list[str]:
+    return [p for p, (_n, k) in PROVIDERS.items() if config.get_key(k)]
+
+
+def _call(system: str, user: str, s: config.Settings, task: str,
+          max_tokens: int, timeout: float, provider: str | None = None) -> tuple[str, str]:
+    """回傳 (文字, 實際使用的引擎)。主要引擎失敗時依設定改用其他已填金鑰的引擎。"""
+    first = provider or (s.meeting_provider if task == "meeting" else s.polish_provider)
+    order = [first] + ([p for p in PROVIDERS if p != first] if s.provider_fallback and not provider else [])
+    errors = []
+    for p in order:
+        name, keyname = PROVIDERS.get(p, (p, p))
+        key = config.get_key(keyname)
+        if not key:
+            if p == first:
+                errors.append(f"尚未設定 {name} API key")
+            continue
+        try:
+            text = _CALLERS[p](key, system, user, _model_for(p, s, task), max_tokens, timeout)
+        except PolishError as e:
+            errors.append(str(e))
+            continue
+        if text.strip():
+            return text.strip(), p
+        errors.append(f"{name} 回傳空白")
+    raise PolishError("；".join(errors) or "沒有可用的 AI 引擎")
 
 
 def polish(text: str, s: config.Settings, style: str | None = None) -> str:
@@ -115,7 +193,7 @@ def polish(text: str, s: config.Settings, style: str | None = None) -> str:
     instruction = all_styles(s).get(style, BUILTIN_STYLES["日常"])
     system = BASE_SYSTEM + f"\n\n本次風格：{style}。{instruction}" + _vocab_note(s)
     user = f"<逐字稿>\n{text}\n</逐字稿>"
-    out = _call(system, user, s.claude_model, max_tokens=4000, timeout=60)
+    out, _p = _call(system, user, s, "dictation", max_tokens=4000, timeout=60)
     # 保險：萬一模型把標籤也輸出
     return out.replace("<逐字稿>", "").replace("</逐字稿>", "").strip()
 
@@ -125,8 +203,11 @@ def meeting_minutes(transcript: str, s: config.Settings, extra: str = "") -> str
     if extra.strip():
         system += "\n\n使用者補充說明：" + extra.strip()
     user = f"<逐字稿>\n{transcript}\n</逐字稿>"
-    return _call(system, user, s.claude_meeting_model, max_tokens=8000, timeout=300)
+    out, _p = _call(system, user, s, "meeting", max_tokens=8000, timeout=300)
+    return out
 
 
-def test_claude_key(s: config.Settings) -> str:
-    return _call("只回覆「OK」。", "測試", s.claude_model, max_tokens=10, timeout=30)
+def test_provider(provider: str, s: config.Settings) -> str:
+    out, _p = _call("只回覆「OK」。", "測試", s, "dictation", max_tokens=200, timeout=30,
+                    provider=provider)
+    return out

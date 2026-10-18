@@ -54,7 +54,7 @@ class SettingsDialog(QDialog):
         root = QVBoxLayout(self)
         if welcome:
             lb = QLabel(
-                "歡迎使用說說！請先在「API 金鑰」填入 Claude 與 Groq 的金鑰，"
+                "歡迎使用說說！請先在「API 金鑰」填入免費的 Groq 金鑰（Gemini、Claude 可之後再加），"
                 "按「儲存」後就能用快捷鍵開始口述。"
             )
             lb.setWordWrap(True)
@@ -65,7 +65,7 @@ class SettingsDialog(QDialog):
         self.tabs.addTab(self._tab_general(), "一般")
         self.tabs.addTab(self._tab_keys(), "API 金鑰")
         self.tabs.addTab(self._tab_engine(), "辨識")
-        self.tabs.addTab(self._tab_polish(), "潤飾風格")
+        self.tabs.addTab(self._tab_polish(), "潤飾與 AI")
         self.tabs.addTab(self._tab_vocab(), "詞庫")
         if welcome:
             self.tabs.setCurrentIndex(1)
@@ -115,12 +115,16 @@ class SettingsDialog(QDialog):
         w = QWidget()
         v = QVBoxLayout(w)
         f = QFormLayout()
-        self.claude_key = KeyField("anthropic")
         self.groq_key = KeyField("groq")
-        f.addRow("Claude（潤飾）", self.claude_key)
-        f.addRow("", _hint('到 <a href="https://console.anthropic.com/settings/keys">Anthropic Console</a> 建立，需儲值，依用量計費。'))
-        f.addRow("Groq（辨識）", self.groq_key)
-        f.addRow("", _hint('到 <a href="https://console.groq.com/keys">Groq Console</a> 免費建立，有每日免費額度。'))
+        self.gemini_key = KeyField("gemini")
+        self.claude_key = KeyField("anthropic")
+        f.addRow("Groq（必填）", self.groq_key)
+        f.addRow("", _hint('語音辨識與潤飾都用得到。到 <a href="https://console.groq.com/keys">Groq Console</a> 免費建立。'))
+        f.addRow("Gemini（選填）", self.gemini_key)
+        f.addRow("", _hint('到 <a href="https://aistudio.google.com/apikey">Google AI Studio</a> 免費建立。'
+                           '注意：免費方案的內容可能被 Google 用來改進產品。'))
+        f.addRow("Claude（選填）", self.claude_key)
+        f.addRow("", _hint('到 <a href="https://console.anthropic.com/settings/keys">Anthropic Console</a> 建立，需儲值。'))
         v.addLayout(f)
         test = QPushButton("測試金鑰")
         test.clicked.connect(self._test_keys)
@@ -170,22 +174,31 @@ class SettingsDialog(QDialog):
     def _tab_polish(self):
         w = QWidget()
         v = QVBoxLayout(w)
-        self.polish_on = QCheckBox("用 Claude 潤飾辨識結果（關閉則直接貼上原始辨識文字）")
+        self.polish_on = QCheckBox("用 AI 潤飾辨識結果（關閉則直接貼上原始辨識文字）")
         self.polish_on.setChecked(self.s.polish_enabled)
         v.addWidget(self.polish_on)
         f = QFormLayout()
         self.style = QComboBox()
         f.addRow("目前風格", self.style)
-        self.claude_model = QComboBox()
-        self.claude_model.setEditable(True)
-        self.claude_model.addItems(["claude-haiku-5-5", "claude-sonnet-5-5"])
-        self.claude_model.setEditText(self.s.claude_model)
-        f.addRow("口述用模型", self.claude_model)
-        self.meeting_model = QComboBox()
-        self.meeting_model.setEditable(True)
-        self.meeting_model.addItems(["claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-5-5"])
-        self.meeting_model.setEditText(self.s.claude_meeting_model)
-        f.addRow("會議整理用模型", self.meeting_model)
+        self.polish_provider = self._provider_combo(self.s.polish_provider)
+        f.addRow("口述潤飾引擎", self.polish_provider)
+        self.meeting_provider = self._provider_combo(self.s.meeting_provider)
+        f.addRow("會議整理引擎", self.meeting_provider)
+        self.provider_fallback = QCheckBox("引擎失敗（額度用完等）時改用其他已填金鑰的引擎")
+        self.provider_fallback.setChecked(self.s.provider_fallback)
+        f.addRow("", self.provider_fallback)
+        self.groq_chat_model = self._model_combo(
+            ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"], self.s.groq_chat_model)
+        f.addRow("Groq 模型", self.groq_chat_model)
+        self.gemini_model = self._model_combo(
+            ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3-flash-preview", "gemini-2.5-pro"],
+            self.s.gemini_model)
+        f.addRow("Gemini 模型", self.gemini_model)
+        self.claude_model = self._model_combo(["claude-haiku-5-5", "claude-sonnet-5-5"], self.s.claude_model)
+        f.addRow("Claude 口述模型", self.claude_model)
+        self.meeting_model = self._model_combo(
+            ["claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-5-5"], self.s.claude_meeting_model)
+        f.addRow("Claude 會議模型", self.meeting_model)
         v.addLayout(f)
 
         v.addWidget(QLabel("自訂風格"))
@@ -232,6 +245,22 @@ class SettingsDialog(QDialog):
         v.addWidget(self.repl, 1)
         return w
 
+    @staticmethod
+    def _provider_combo(current: str) -> QComboBox:
+        c = QComboBox()
+        for key, label in [("groq", "Groq（免費）"), ("gemini", "Gemini（免費額度）"), ("claude", "Claude（付費）")]:
+            c.addItem(label, key)
+        c.setCurrentIndex(max(0, c.findData(current)))
+        return c
+
+    @staticmethod
+    def _model_combo(items: list[str], current: str) -> QComboBox:
+        c = QComboBox()
+        c.setEditable(True)
+        c.addItems(items)
+        c.setEditText(current)
+        return c
+
     # ---------- 動作 ----------
     def _refresh_styles(self):
         cur = self.style.currentText() or self.s.current_style
@@ -271,22 +300,29 @@ class SettingsDialog(QDialog):
         self._store_keys()
         self.test_result.setText("測試中…")
 
+        s = self._collect()
+        groq_model = self.groq_model.currentText()
+
         def job(_p):
             out = []
-            try:
-                polish.test_claude_key(self._collect())
-                out.append("Claude ✓")
-            except Exception as e:
-                out.append(f"Claude ✗ {e}")
-            try:
-                import numpy as np
+            if config.get_key("groq"):
+                try:
+                    import numpy as np
 
-                tone = (0.1 * np.sin(np.linspace(0, 2000, 16000))).astype("float32")
-                transcribe._groq_chunk(tone, config.get_key("groq"), self.groq_model.currentText(), "")
-                out.append("Groq ✓")
-            except Exception as e:
-                out.append(f"Groq ✗ {e}")
-            return "　".join(out)
+                    tone = (0.1 * np.sin(np.linspace(0, 2000, 16000))).astype("float32")
+                    transcribe._groq_chunk(tone, config.get_key("groq"), groq_model, "")
+                    out.append("Groq 辨識 ✓")
+                except Exception as e:
+                    out.append(f"Groq 辨識 ✗ {e}")
+            for prov, (name, keyname) in polish.PROVIDERS.items():
+                if not config.get_key(keyname):
+                    continue
+                try:
+                    polish.test_provider(prov, s)
+                    out.append(f"{name} 潤飾 ✓")
+                except Exception as e:
+                    out.append(f"{name} 潤飾 ✗ {e}")
+            return "\n".join(out) or "請先填入金鑰"
 
         run_async(job, self.test_result.setText, self.test_result.setText)
 
@@ -303,6 +339,7 @@ class SettingsDialog(QDialog):
         try:
             config.set_key("anthropic", self.claude_key.value())
             config.set_key("groq", self.groq_key.value())
+            config.set_key("gemini", self.gemini_key.value())
         except Exception as e:
             QMessageBox.warning(self, "說說", f"無法儲存金鑰：{e}")
 
@@ -321,6 +358,11 @@ class SettingsDialog(QDialog):
         s.local_model = self.local_model.currentData()
         s.polish_enabled = self.polish_on.isChecked()
         s.current_style = self.style.currentText() or "日常"
+        s.polish_provider = self.polish_provider.currentData()
+        s.meeting_provider = self.meeting_provider.currentData()
+        s.provider_fallback = self.provider_fallback.isChecked()
+        s.groq_chat_model = self.groq_chat_model.currentText().strip() or s.groq_chat_model
+        s.gemini_model = self.gemini_model.currentText().strip() or s.gemini_model
         s.claude_model = self.claude_model.currentText().strip() or s.claude_model
         s.claude_meeting_model = self.meeting_model.currentText().strip() or s.claude_meeting_model
         s.custom_styles = dict(self._custom)

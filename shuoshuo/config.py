@@ -54,6 +54,13 @@ class Settings:
     local_model: str = "small"
     # 潤飾
     polish_enabled: bool = True
+    # 文字 AI 引擎："groq"（免費）、"gemini"（免費額度）、"claude"（付費）
+    polish_provider: str = "groq"    # 口述潤飾
+    meeting_provider: str = "gemini"  # 會議整理：長文字 Gemini 免費額度較寬；沒金鑰會自動改用 Groq
+    # 選的引擎失敗（沒金鑰、額度用完）時，改用其他已填金鑰的引擎
+    provider_fallback: bool = True
+    groq_chat_model: str = "openai/gpt-oss-120b"
+    gemini_model: str = "gemini-2.5-flash"
     claude_model: str = "claude-haiku-5-5"          # 日常口述：快又便宜
     claude_meeting_model: str = "claude-sonnet-5-5"  # 會議整理：品質優先
     current_style: str = "日常"
@@ -99,8 +106,9 @@ _SERVICE = APP_ID
 
 
 def get_key(name: str) -> str:
-    """name: 'anthropic' 或 'groq'。環境變數優先（方便開發測試）。"""
-    env = {"anthropic": "ANTHROPIC_API_KEY", "groq": "GROQ_API_KEY"}.get(name)
+    """name: 'anthropic'、'groq' 或 'gemini'。環境變數優先（方便開發測試）。"""
+    env = {"anthropic": "ANTHROPIC_API_KEY", "groq": "GROQ_API_KEY",
+           "gemini": "GEMINI_API_KEY"}.get(name)
     if env and os.environ.get(env):
         return os.environ[env]
     if keyring is None:

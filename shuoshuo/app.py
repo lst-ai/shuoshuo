@@ -1,6 +1,6 @@
 """主程式：系統匣圖示 + 快捷鍵口述流程。
 
-流程：按快捷鍵 → 錄音 → 再按 → 辨識（Groq/本機）→ Claude 潤飾 → 貼到游標處 → 存歷史。
+流程：按快捷鍵 → 錄音 → 再按 → 辨識（Groq/本機）→ AI 潤飾（Groq/Gemini/Claude）→ 貼到游標處 → 存歷史。
 """
 from __future__ import annotations
 
@@ -67,7 +67,7 @@ class Controller(QObject):
         except Exception as e:
             QMessageBox.warning(None, APP_NAME, f"快捷鍵無法啟用：{e}")
 
-        if not config.get_key("anthropic") or (self.s.engine == "groq" and not config.get_key("groq")):
+        if not config.get_key("groq"):
             QTimer.singleShot(300, lambda: self.open_settings(welcome=True))
         else:
             self.tray.showMessage(
