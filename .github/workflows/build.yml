@@ -13,9 +13,9 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -28,7 +28,20 @@ jobs:
       - name: 測試
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python -m pytest -q tests
+          PYTHONUTF8: "1"
+        shell: bash
+        run: |
+          set +e
+          python -m pytest -q --tb=short -rf tests > pytest.txt 2>&1
+          code=$?
+          cat pytest.txt
+          if [ $code -ne 0 ]; then
+            # 把失敗訊息寫成註記，方便在摘要頁直接看到
+            grep -E "^(FAILED|ERROR|E  )|Error|error:" pytest.txt | head -30 | while IFS= read -r line; do
+              echo "::error::${line//%/%25}"
+            done
+          fi
+          exit $code
 
       - name: 打包程式
         run: pyinstaller --noconfirm shuoshuo.spec
@@ -53,7 +66,7 @@ jobs:
           & $iscc installer.iss
 
       - name: 上傳安裝檔（到 Actions 頁面下載）
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ShuoShuo-Setup
           path: installer/*.exe
