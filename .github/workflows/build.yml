@@ -26,21 +26,29 @@ jobs:
           pip install -r requirements.txt pyinstaller pytest
 
       - name: 測試
+        id: tests
         env:
           QT_QPA_PLATFORM: offscreen
           PYTHONUTF8: "1"
-        shell: bash
+          PYTHONFAULTHANDLER: "1"
+        shell: pwsh
         run: |
-          set +e
-          python -m pytest -v --tb=short -rf tests > pytest.txt 2>&1
-          code=$?
-          cat pytest.txt
-          if [ $code -ne 0 ]; then
-            # 把失敗或當掉的重點合併成一則註記（換行用 %0A），方便在摘要頁直接看到
-            msg=$(grep -E "FAILED|ERROR|^E  |fatal exception|File \"|::test_" pytest.txt | grep -v PASSED | tail -40 | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"}{print}')
-            echo "::error title=測試失敗 (exit $code)::$msg"
-          fi
+          python -X faulthandler -m pytest -v --tb=short -rf -p no:cacheprovider tests *> pytest.txt
+          $code = $LASTEXITCODE
+          Get-Content pytest.txt
+          "exit code: $code" | Add-Content pytest.txt
           exit $code
+
+      - name: 回報測試輸出（失敗時貼到 commit 留言）
+        if: failure() && steps.tests.outcome == 'failure'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $lines = Get-Content pytest.txt -Tail 150
+          $body = "測試輸出（最後 150 行）`n``````n" + ($lines -join "`n") + "`n``````"
+          @{ body = $body } | ConvertTo-Json | Set-Content -Encoding utf8 body.json
+          gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" --input body.json
 
       - name: 打包程式
         run: pyinstaller --noconfirm shuoshuo.spec
