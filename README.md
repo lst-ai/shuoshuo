@@ -45,4 +45,4 @@ python run.py          # 執行
 python -m pytest tests # 測試
 ```
 
-推送到 GitHub 的 `main` 分支後，Actions 會自動測試並打包；到 Actions 頁面該次執行的「Artifacts」下載安裝檔。推送 `v` 開頭的標籤（例如 `v0.1.0`）會另外發布到 Releases。
+推送到 GitHub 的 `main` 分支後，Actions 會自動測試、打包，並把安裝檔發布到 Releases（版本號取自 `shuoshuo/__init__.py`）。

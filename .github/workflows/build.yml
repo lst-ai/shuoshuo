@@ -71,8 +71,16 @@ jobs:
           name: ShuoShuo-Setup
           path: installer/*.exe
 
-      - name: 發布版本（推送 v 開頭標籤時）
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: 發布到 Releases（每次推送 main 都更新該版本的安裝檔）
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ env.APP_VERSION }}
+          name: 說說 v${{ env.APP_VERSION }}
+          target_commitish: ${{ github.sha }}
+          make_latest: true
+          body: |
+            下載下方的 ShuoShuo-Setup-${{ env.APP_VERSION }}.exe 安裝。
+            第一次執行若出現「Windows 已保護您的電腦」，按「其他資訊」→「仍要執行」。
           files: installer/*.exe
+          overwrite_files: true
