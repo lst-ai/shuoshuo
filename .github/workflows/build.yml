@@ -28,7 +28,6 @@ jobs:
       - name: 測試
         env:
           QT_QPA_PLATFORM: offscreen
-          PYTHONUTF8: "1"
         shell: bash
         run: |
           set +e
