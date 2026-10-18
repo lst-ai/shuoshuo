@@ -1,0 +1,65 @@
+name: 打包 Windows 安裝檔
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: 安裝套件
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller pytest
+
+      - name: 測試
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -q tests
+
+      - name: 打包程式
+        run: pyinstaller --noconfirm shuoshuo.spec
+
+      - name: 版本號
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "APP_VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
+          else
+            echo "APP_VERSION=$(python -c 'import shuoshuo;print(shuoshuo.__version__)')" >> $GITHUB_ENV
+          fi
+
+      - name: 製作安裝檔
+        shell: pwsh
+        run: |
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) {
+            choco install innosetup -y --no-progress
+          }
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) { $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" }
+          & $iscc installer.iss
+
+      - name: 上傳安裝檔（到 Actions 頁面下載）
+        uses: actions/upload-artifact@v4
+        with:
+          name: ShuoShuo-Setup
+          path: installer/*.exe
+
+      - name: 發布版本（推送 v 開頭標籤時）
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: installer/*.exe
