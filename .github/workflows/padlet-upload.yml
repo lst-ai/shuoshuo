@@ -1,0 +1,25 @@
+name: 上傳素材到 Padlet
+
+on:
+  workflow_dispatch:
+    inputs:
+      files:
+        description: "JSON：[{\"path\": \"docs/x.png\", \"url\": \"簽名上傳網址\"}]"
+        required: true
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: 上傳
+        env:
+          FILES: ${{ inputs.files }}
+        run: |
+          echo "$FILES" | python3 -c "
+          import json, subprocess, sys
+          for f in json.load(sys.stdin):
+              r = subprocess.run(['curl', '-sS', '-o', '/dev/null', '-w', '%{http_code}', '-T', f['path'], f['url']], capture_output=True, text=True)
+              print(f['path'], r.stdout, r.stderr)
+              if not r.stdout.startswith('2'): sys.exit(1)
+          "
