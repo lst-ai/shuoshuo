@@ -1,0 +1,40 @@
+name: 產生影片配音（雲哲）
+
+on:
+  push:
+    branches: [tts]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  tts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: 產生配音
+        run: |
+          pip install edge-tts
+          mkdir -p out
+          python - <<'PY'
+          import asyncio, json, edge_tts
+          lines = json.load(open("docs/narration-v2.json", encoding="utf-8"))
+          async def main():
+              for i, t in enumerate(lines):
+                  await edge_tts.Communicate(t, "zh-TW-YunJheNeural", rate="+0%").save(f"out/a{i:02d}.mp3")
+                  print(i, "ok")
+          asyncio.run(main())
+          PY
+      - name: 存到 tts-output 分支
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git checkout --orphan tts-output
+          git rm -rf --cached . > /dev/null
+          git add -f out/*.mp3
+          git commit -m "雲哲配音"
+          git push -f origin tts-output
