@@ -25,7 +25,7 @@ jobs:
           lines = json.load(open("docs/narration-v2.json", encoding="utf-8"))
           async def main():
               for i, t in enumerate(lines):
-                  await edge_tts.Communicate(t, "zh-TW-YunJheNeural", rate="+15%").save(f"out/a{i:02d}.mp3")
+                  await edge_tts.Communicate(t, "zh-TW-YunJheNeural", rate="-5%").save(f"out/a{i:02d}.mp3")
                   print(i, "ok")
           asyncio.run(main())
           PY
